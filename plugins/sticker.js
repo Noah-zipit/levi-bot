@@ -3,7 +3,7 @@ const { formatMessage } = require('../utils/messages');
 const fs = require('fs');
 const path = require('path');
 const sharp = require('sharp');
-const { downloadContentFromMessage } = require('@whiskeysockets/baileys');
+const { downloadContentFromMessage } = require('baileys');
 const { v4: uuidv4 } = require('uuid');
 
 module.exports = {
