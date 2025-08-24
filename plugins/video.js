@@ -1,85 +1,125 @@
+// plugins/video.js
+const { formatMessage } = require('../utils/messages');
 const fs = require('fs');
 const path = require('path');
-const { execSync } = require('child_process');
-const { formatMessage } = require('../utils/messages');
+const ytdl = require('ytdl-core');
+const { v4: uuidv4 } = require('uuid');
+const ffmpegPath = require('ffmpeg-static');
+const { spawn } = require('child_process');
 
 module.exports = {
   name: 'video',
-  description: 'Download video from YouTube',
-  category: 'utility',
+  description: 'Download and send a YouTube video',
+  category: 'Media',
   async execute(sock, message, args, user) {
     const sender = message.key.remoteJid;
     
-    // Check if there's a pending download
-    if (!global.pendingDownloads || !global.pendingDownloads[sender]) {
+    if (!args.length) {
       await sock.sendMessage(sender, {
-        text: formatMessage("No pending download. Search for a video first using !play <video name>")
+        text: formatMessage("Please provide a YouTube video URL. Example: !video https://www.youtube.com/watch?v=dQw4w9WgXcQ")
       });
       return;
     }
     
-    // Get the video info
-    const downloadInfo = global.pendingDownloads[sender];
+    const url = args[0];
+    
+    // Validate YouTube URL
+    if (!ytdl.validateURL(url)) {
+      await sock.sendMessage(sender, {
+        text: formatMessage("Please provide a valid YouTube video URL.")
+      });
+      return;
+    }
     
     try {
-      // Send status message
-      await sock.sendMessage(sender, {
-        text: formatMessage("Downloading video... Please wait. This might take a while for longer videos.")
+      // Send processing message
+      await sock.sendMessage(sender, { 
+        text: formatMessage("Downloading video... This might take a while.")
       });
       
+      // Get video info
+      const info = await ytdl.getInfo(url);
+      const videoTitle = info.videoDetails.title;
+      
       // Create temp directory if it doesn't exist
-      const tempDir = path.join(__dirname, '..', 'temp');
+      const tempDir = path.join(__dirname, '../temp');
       if (!fs.existsSync(tempDir)) {
         fs.mkdirSync(tempDir, { recursive: true });
       }
       
-      // Define file path
-      const randomId = Math.floor(Math.random() * 10000);
-      const videoPath = path.join(tempDir, `video_${randomId}.mp4`);
+      // Generate unique filename
+      const filename = `${uuidv4()}`;
+      const outputPath = path.join(tempDir, `${filename}.mp4`);
       
-      // Download using yt-dlp
-      try {
-        execSync(`yt-dlp -f "best[height<=720][ext=mp4]" -o "${videoPath}" "https://www.youtube.com/watch?v=${downloadInfo.videoId}"`, {
-          stdio: 'pipe'
-        });
-        
-        // Check file size
-        const stats = fs.statSync(videoPath);
-        const fileSizeInMB = stats.size / (1024 * 1024);
-        
-        if (fileSizeInMB > 15) {
-          await sock.sendMessage(sender, {
-            text: formatMessage("Video is too large to send (>15MB). Try a shorter video or use !audio instead.")
+      // Get the lowest quality format that's a video with audio
+      const format = ytdl.chooseFormat(info.formats, { 
+        quality: 'lowest', 
+        filter: 'audioandvideo' 
+      });
+      
+      if (!format) {
+        throw new Error('No suitable format found');
+      }
+      
+      // Download and process video with ytdl
+      const videoStream = ytdl(url, { format: format });
+      
+      // Create write stream
+      const writeStream = fs.createWriteStream(outputPath);
+      
+      // Pipe video to file
+      videoStream.pipe(writeStream);
+      
+      // Handle completion
+      writeStream.on('finish', async () => {
+        try {
+          // Check file size
+          const stats = fs.statSync(outputPath);
+          const fileSizeInMB = stats.size / (1024 * 1024);
+          
+          if (fileSizeInMB > 15) {
+            await sock.sendMessage(sender, {
+              text: formatMessage("The video is too large to send (>15MB). Try a shorter video.")
+            });
+            
+            // Clean up
+            fs.unlinkSync(outputPath);
+            return;
+          }
+          
+          // Send video
+          await sock.sendMessage(sender, { 
+            video: { url: outputPath },
+            caption: formatMessage(`${videoTitle}\n\nRequested by ${message.pushName || user.userId}`)
           });
           
-          // Delete the temp file
-          fs.unlinkSync(videoPath);
-          return;
+          // Clean up
+          fs.unlinkSync(outputPath);
+        } catch (error) {
+          console.error('Error sending video:', error);
+          await sock.sendMessage(sender, {
+            text: formatMessage("There was an error sending the video. Please try again with a different video.")
+          });
+          
+          // Clean up
+          if (fs.existsSync(outputPath)) {
+            fs.unlinkSync(outputPath);
+          }
         }
-        
-        // Send the video file
+      });
+      
+      // Handle errors
+      videoStream.on('error', async (error) => {
+        console.error('Error downloading video:', error);
         await sock.sendMessage(sender, {
-          video: fs.readFileSync(videoPath),
-          caption: `${downloadInfo.title}`,
-          mimetype: 'video/mp4',
-          fileName: `${downloadInfo.title}.mp4`
+          text: formatMessage("There was an error downloading the video. Please try again.")
         });
-        
-        // Clean up
-        delete global.pendingDownloads[sender];
-        
-        // Delete the temp file
-        fs.unlinkSync(videoPath);
-      } catch (error) {
-        console.error('Failed to download with yt-dlp:', error);
-        await sock.sendMessage(sender, {
-          text: formatMessage("Failed to download. Make sure yt-dlp is installed on your system or try another video.")
-        });
-      }
+      });
+      
     } catch (error) {
-      console.error('Error in video command:', error);
+      console.error('Error processing YouTube video:', error);
       await sock.sendMessage(sender, {
-        text: formatMessage("An error occurred while downloading. Please try again later.")
+        text: formatMessage("There was an error processing the YouTube video. Please try a different video or check the URL.")
       });
     }
   }
