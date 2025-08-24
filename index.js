@@ -1,4 +1,4 @@
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } = require('baileys');
 const P = require('pino');
 const fs = require('fs');
 const path = require('path');
@@ -11,6 +11,9 @@ const { formatMessage } = require('./utils/messages');
 const { attemptCardSpawn } = require('./utils/cardSpawner');
 const { getUserIdFromJid, isOwner } = require('./utils/jidUtils');
 const User = require('./database/models/user');
+
+// Start web server for Railway health checks
+require('./server');
 
 // Reconnection management with exponential backoff
 let retryCount = 0;
@@ -54,6 +57,9 @@ async function startBot() {
       retryRequestDelayMs: 1000,
       keepAliveIntervalMs: 10000
     });
+    
+    // Make socket globally available for other modules
+    global.waSocket = sock;
     
     // Save credentials on update
     sock.ev.on('creds.update', saveCreds);
