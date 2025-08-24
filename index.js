@@ -3,6 +3,7 @@ const P = require('pino');
 const fs = require('fs');
 const path = require('path');
 const qrcode = require('qrcode-terminal');
+const qr = require('qrcode');
 const { connectToDatabase } = require('./database/connection');
 const { loadPlugins } = require('./plugins/_handler');
 const { BOT_NAME, OWNER_NUMBER, PREFIX } = require('./config/config');
@@ -14,6 +15,11 @@ const User = require('./database/models/user');
 
 // Start web server for Railway health checks
 require('./server');
+
+// Log startup attempt
+if (global.captureLog) {
+  global.captureLog("Bot starting up...");
+}
 
 // Reconnection management with exponential backoff
 let retryCount = 0;
@@ -48,9 +54,9 @@ async function startBot() {
     const sock = makeWASocket({
       logger: P({ level: 'silent' }),
       auth: state,
-      browser: ['Levi Bot', 'Firefox', '102.0'],
+      browser: ['Levi Bot', 'Chrome', '107.0.0.0'],
       version: version,
-      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:102.0) Gecko/20100101 Firefox/102.0',
+      printQRInTerminal: true, // Make sure QR prints in terminal for debugging
       connectTimeoutMs: 60000,
       qrTimeout: 60000,
       defaultQueryTimeoutMs: 30000,
@@ -69,33 +75,29 @@ async function startBot() {
     
     // Connection event
     sock.ev.on('connection.update', async (update) => {
-      const { connection, lastDisconnect, qr } = update;
+      const { connection, lastDisconnect, qrCodeBase64 } = update;
       
       // Handle QR code
-      if (qr) {
+      if (qrCodeBase64) {
         // Log QR received
         logger.info('New QR code received. Scan to authenticate.');
         
-        // Display QR in terminal
-        qrcode.generate(qr, { small: true });
+        // Make QR available on web interface
+        if (global.setQR) {
+          global.setQR(`data:image/png;base64,${qrCodeBase64}`);
+        }
         
-        // Optionally save QR as image file
+        // Save QR as image file
         try {
           const qrPath = path.join(__dirname, 'qr-code.png');
-          const qrStream = fs.createWriteStream(qrPath);
-          
-          require('qrcode').toFileStream(qrStream, qr, {
-            type: 'png',
-            width: 600,
-            margin: 1
-          });
-          
-          logger.info(`QR code also saved to: ${qrPath}`);
+          fs.writeFileSync(qrPath, qrCodeBase64, 'base64');
+          logger.info(`QR code saved to: ${qrPath}`);
         } catch (err) {
           logger.error('Failed to save QR code image: ' + err.message);
         }
       }
       
+      // Handle connection updates
       if (connection === 'close') {
         const statusCode = lastDisconnect?.error?.output?.statusCode;
         const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
