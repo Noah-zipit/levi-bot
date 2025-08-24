@@ -1,9 +1,22 @@
+// Keep-alive server for Replit
+const express = require('express');
+const app = express();
+const port = process.env.PORT || 3000;
+
+app.get('/', (req, res) => {
+  res.send('Bot is running!');
+});
+
+app.listen(port, () => {
+  console.log(`Keep-alive server running on port ${port}`);
+});
+
+// WhatsApp Bot Code
 const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } = require('baileys');
 const P = require('pino');
 const fs = require('fs');
 const path = require('path');
 const qrcode = require('qrcode-terminal');
-const QRCode = require('qrcode');
 const { connectToDatabase } = require('./database/connection');
 const { loadPlugins } = require('./plugins/_handler');
 const { BOT_NAME, OWNER_NUMBER, PREFIX } = require('./config/config');
@@ -12,32 +25,6 @@ const { formatMessage } = require('./utils/messages');
 const { attemptCardSpawn } = require('./utils/cardSpawner');
 const { getUserIdFromJid, isOwner } = require('./utils/jidUtils');
 const User = require('./database/models/user');
-
-// Start web server for Railway health checks
-require('./server');
-
-// Capture logs for web interface
-if (logger.info && !logger.info.isPatched) {
-  const originalInfo = logger.info;
-  logger.info = function(msg) {
-    if (global.captureLog) {
-      global.captureLog(`INFO: ${msg}`);
-    }
-    return originalInfo.apply(this, arguments);
-  };
-  logger.info.isPatched = true;
-}
-
-if (logger.error && !logger.error.isPatched) {
-  const originalError = logger.error;
-  logger.error = function(msg) {
-    if (global.captureLog) {
-      global.captureLog(`ERROR: ${msg}`);
-    }
-    return originalError.apply(this, arguments);
-  };
-  logger.error.isPatched = true;
-}
 
 // Log startup attempt
 logger.info("Bot starting up...");
@@ -146,24 +133,6 @@ async function startBot() {
         
         // Display QR in terminal
         qrcode.generate(qr, { small: true });
-        
-        // Generate QR code as data URL for web display
-        try {
-          QRCode.toDataURL(qr, (err, dataUrl) => {
-            if (err) {
-              logger.error(`Error generating QR code: ${err.message}`);
-              return;
-            }
-            
-            // Make QR available on web interface
-            if (global.setQR) {
-              global.setQR(dataUrl);
-              logger.info('QR code set for web interface');
-            }
-          });
-        } catch (err) {
-          logger.error(`Failed to generate QR data URL: ${err.message}`);
-        }
       }
       
       // Handle connection updates
