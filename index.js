@@ -68,8 +68,43 @@ async function startBot() {
     const { version } = await fetchLatestBaileysVersion();
     logger.info(`Using WA version: ${version.join('.')}`);
     
-    // Authentication state
-    const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
+    let state;
+    let saveCreds;
+    
+    // Check if we have a session in environment variables
+    if (process.env.SESSION_DATA) {
+      logger.info('Using session from environment variable');
+      
+      try {
+        // Decode the session data
+        const sessionData = Buffer.from(process.env.SESSION_DATA, 'base64').toString();
+        const creds = JSON.parse(sessionData);
+        
+        // Create state object
+        state = {
+          creds,
+          keys: {}
+        };
+        
+        // Define saveCreds function that does nothing (can't save to env var)
+        saveCreds = async () => {
+          logger.info('Session credentials updated (not saving to env var)');
+        };
+        
+        logger.info('Session loaded successfully from environment variable');
+      } catch (e) {
+        logger.error(`Failed to load session from environment: ${e.message}`);
+        logger.info('Falling back to regular auth');
+        const authResult = await useMultiFileAuthState('auth_info_baileys');
+        state = authResult.state;
+        saveCreds = authResult.saveCreds;
+      }
+    } else {
+      logger.info('No session data in environment, using file-based auth');
+      const authResult = await useMultiFileAuthState('auth_info_baileys');
+      state = authResult.state;
+      saveCreds = authResult.saveCreds;
+    }
     
     // Create WA Socket with improved options
     const sock = makeWASocket({
@@ -98,9 +133,13 @@ async function startBot() {
     sock.ev.on('connection.update', async (update) => {
       const { connection, lastDisconnect, qr } = update;
       
-      logger.info(`Connection update: ${JSON.stringify(update)}`);
+      logger.info(`Connection update: ${JSON.stringify({
+        connection,
+        hasQR: !!qr,
+        hasDisconnect: !!lastDisconnect
+      })}`);
       
-      // Handle QR code
+      // Handle QR code (only needed for file-based auth without existing session)
       if (qr) {
         // Log QR received
         logger.info('New QR code received. Scan to authenticate.');
@@ -143,6 +182,8 @@ async function startBot() {
         // Reset retry count on successful connection
         retryCount = 0;
         logger.info('Levi bot is now online!');
+        
+        // Send notification to owner
         try {
           await sock.sendMessage(OWNER_NUMBER + '@s.whatsapp.net', { 
             text: "Captain Levi reporting for duty. The place is filthy." 
