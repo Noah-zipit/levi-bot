@@ -31,17 +31,6 @@ function getUserIdFromJid(jid) {
 }
 
 /**
- * Checks if a string looks like a proper international phone number
- * @param {string} id - ID to check
- * @returns {boolean} - True if it's likely a phone number
- */
-function isLikelyPhoneNumber(id) {
-  // Most international phone numbers are 7-15 digits and often start with country code
-  // Common patterns: +1XXXXXXXXXX, 1XXXXXXXXXX, etc.
-  return /^(\+)?[1-9]\d{6,14}$/.test(id);
-}
-
-/**
  * Formats a JID for display in messages with proper formatting
  * @param {string} jid - The WhatsApp JID
  * @param {string} name - Optional user name
@@ -55,12 +44,7 @@ function formatJidForDisplay(jid, name = '') {
     return name;
   }
   
-  // For phone numbers, add + if it looks like an international number
-  if (isLikelyPhoneNumber(userId)) {
-    return userId.startsWith('+') ? userId : `+${userId}`;
-  }
-  
-  // For WhatsApp IDs and usernames, add @ prefix
+  // Default to ID with @ prefix
   return `@${userId}`;
 }
 
@@ -79,6 +63,5 @@ module.exports = {
   formatJid,
   getUserIdFromJid,
   formatJidForDisplay,
-  isOwner,
-  isLikelyPhoneNumber
+  isOwner
 };
