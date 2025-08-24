@@ -3,11 +3,11 @@ const P = require('pino');
 const fs = require('fs');
 const path = require('path');
 const qrcode = require('qrcode-terminal');
-const qr = require('qrcode');
+const QRCode = require('qrcode');
 const { connectToDatabase } = require('./database/connection');
 const { loadPlugins } = require('./plugins/_handler');
 const { BOT_NAME, OWNER_NUMBER, PREFIX } = require('./config/config');
-const logger = require('./utils/webLogger');
+const logger = require('./utils/logger');
 const { formatMessage } = require('./utils/messages');
 const { attemptCardSpawn } = require('./utils/cardSpawner');
 const { getUserIdFromJid, isOwner } = require('./utils/jidUtils');
@@ -16,10 +16,31 @@ const User = require('./database/models/user');
 // Start web server for Railway health checks
 require('./server');
 
-// Log startup attempt
-if (global.captureLog) {
-  global.captureLog("Bot starting up...");
+// Capture logs for web interface
+if (logger.info && !logger.info.isPatched) {
+  const originalInfo = logger.info;
+  logger.info = function(msg) {
+    if (global.captureLog) {
+      global.captureLog(`INFO: ${msg}`);
+    }
+    return originalInfo.apply(this, arguments);
+  };
+  logger.info.isPatched = true;
 }
+
+if (logger.error && !logger.error.isPatched) {
+  const originalError = logger.error;
+  logger.error = function(msg) {
+    if (global.captureLog) {
+      global.captureLog(`ERROR: ${msg}`);
+    }
+    return originalError.apply(this, arguments);
+  };
+  logger.error.isPatched = true;
+}
+
+// Log startup attempt
+logger.info("Bot starting up...");
 
 // Reconnection management with exponential backoff
 let retryCount = 0;
@@ -56,7 +77,7 @@ async function startBot() {
       auth: state,
       browser: ['Levi Bot', 'Chrome', '107.0.0.0'],
       version: version,
-      printQRInTerminal: true, // Make sure QR prints in terminal for debugging
+      printQRInTerminal: true,
       connectTimeoutMs: 60000,
       qrTimeout: 60000,
       defaultQueryTimeoutMs: 30000,
@@ -75,25 +96,34 @@ async function startBot() {
     
     // Connection event
     sock.ev.on('connection.update', async (update) => {
-      const { connection, lastDisconnect, qrCodeBase64 } = update;
+      const { connection, lastDisconnect, qr } = update;
+      
+      logger.info(`Connection update: ${JSON.stringify(update)}`);
       
       // Handle QR code
-      if (qrCodeBase64) {
+      if (qr) {
         // Log QR received
         logger.info('New QR code received. Scan to authenticate.');
         
-        // Make QR available on web interface
-        if (global.setQR) {
-          global.setQR(`data:image/png;base64,${qrCodeBase64}`);
-        }
+        // Display QR in terminal
+        qrcode.generate(qr, { small: true });
         
-        // Save QR as image file
+        // Generate QR code as data URL for web display
         try {
-          const qrPath = path.join(__dirname, 'qr-code.png');
-          fs.writeFileSync(qrPath, qrCodeBase64, 'base64');
-          logger.info(`QR code saved to: ${qrPath}`);
+          QRCode.toDataURL(qr, (err, dataUrl) => {
+            if (err) {
+              logger.error(`Error generating QR code: ${err.message}`);
+              return;
+            }
+            
+            // Make QR available on web interface
+            if (global.setQR) {
+              global.setQR(dataUrl);
+              logger.info('QR code set for web interface');
+            }
+          });
         } catch (err) {
-          logger.error('Failed to save QR code image: ' + err.message);
+          logger.error(`Failed to generate QR data URL: ${err.message}`);
         }
       }
       
@@ -248,4 +278,3 @@ process.on('unhandledRejection', (reason, promise) => {
 
 // Start the bot
 startBot();
-
