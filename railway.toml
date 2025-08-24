@@ -12,4 +12,5 @@ features = ["nodejs"]
 [nixpacks.env]
 NODE_ENV = "production"
 NODE_VERSION = "18"
-NPM_FLAGS = "--legacy-peer-deps"
+NPM_FLAGS = "--legacy-peer-deps --no-optional"
+PORT = "3000"
