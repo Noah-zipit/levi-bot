@@ -1,11 +1,14 @@
 [build]
 builder = "nixpacks"
-watchPatterns = ["index.js"]
 
 [deploy]
 startCommand = "npm start"
-restartPolicyType = "ON_FAILURE"
-restartPolicyMaxRetries = 10
+healthcheckPath = "/"
+healthcheckTimeout = 300
 
-[deploy.envs]
+[nixpacks]
+features = ["nodejs"]
+
+[nixpacks.env]
 NODE_ENV = "production"
+NODE_VERSION = "18"
