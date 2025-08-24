@@ -7,7 +7,7 @@ const qr = require('qrcode');
 const { connectToDatabase } = require('./database/connection');
 const { loadPlugins } = require('./plugins/_handler');
 const { BOT_NAME, OWNER_NUMBER, PREFIX } = require('./config/config');
-const logger = require('./utils/logger');
+const logger = require('./utils/webLogger');
 const { formatMessage } = require('./utils/messages');
 const { attemptCardSpawn } = require('./utils/cardSpawner');
 const { getUserIdFromJid, isOwner } = require('./utils/jidUtils');
@@ -248,3 +248,4 @@ process.on('unhandledRejection', (reason, promise) => {
 
 // Start the bot
 startBot();
+
