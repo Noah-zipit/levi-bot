@@ -1,83 +1,81 @@
+// plugins/sticker.js
+const { formatMessage } = require('../utils/messages');
 const fs = require('fs');
 const path = require('path');
-const { formatMessage } = require('../utils/messages');
-const { downloadMediaMessage } = require('@whiskeysockets/baileys');
-const Jimp = require('jimp');
+const sharp = require('sharp');
+const { downloadContentFromMessage } = require('@whiskeysockets/baileys');
+const { v4: uuidv4 } = require('uuid');
 
 module.exports = {
   name: 'sticker',
-  description: 'Convert image to sticker',
-  category: 'utility',
+  description: 'Convert image or video to sticker',
+  category: 'Media',
   async execute(sock, message, args, user) {
     const sender = message.key.remoteJid;
     
-    try {
-      // Check if message contains image
-      const hasQuotedImage = message.message.extendedTextMessage?.contextInfo?.quotedMessage?.imageMessage;
-      const hasImage = message.message.imageMessage || hasQuotedImage;
-      
-      if (!hasImage) {
-        await sock.sendMessage(sender, {
-          text: formatMessage("Please send an image or reply to an image with !sticker")
-        });
-        return;
-      }
-      
-      // Send processing message
+    // Check if message has image
+    const isImage = message.message && (message.message.imageMessage || message.message.extendedTextMessage?.contextInfo?.quotedMessage?.imageMessage);
+    
+    if (!isImage) {
       await sock.sendMessage(sender, {
-        text: formatMessage("Processing image into a sticker... Please wait.")
+        text: formatMessage("Please send an image with the caption !sticker, or reply to an image with !sticker")
+      });
+      return;
+    }
+    
+    try {
+      // Send processing message
+      await sock.sendMessage(sender, { 
+        text: formatMessage("Creating sticker... Please wait.")
       });
       
+      // Get quoted message if it's a reply
+      let mediaMessage;
+      if (message.message.extendedTextMessage?.contextInfo?.quotedMessage) {
+        if (message.message.extendedTextMessage.contextInfo.quotedMessage.imageMessage) {
+          mediaMessage = message.message.extendedTextMessage.contextInfo.quotedMessage.imageMessage;
+        }
+      } else {
+        mediaMessage = message.message.imageMessage;
+      }
+      
       // Create temp directory if it doesn't exist
-      const tempDir = path.join(__dirname, '..', 'temp');
+      const tempDir = path.join(__dirname, '../temp');
       if (!fs.existsSync(tempDir)) {
         fs.mkdirSync(tempDir, { recursive: true });
       }
       
-      // Download the image
-      let imageMessage;
-      if (message.message.imageMessage) {
-        imageMessage = message.message;
-      } else {
-        imageMessage = {
-          message: {
-            imageMessage: message.message.extendedTextMessage.contextInfo.quotedMessage.imageMessage
-          }
-        };
+      // Download media
+      const stream = await downloadContentFromMessage(mediaMessage, 'image');
+      const buffer = [];
+      
+      for await (const chunk of stream) {
+        buffer.push(chunk);
       }
       
-      const buffer = await downloadMediaMessage(
-        imageMessage,
-        'buffer',
-        {},
-        {
-          logger: console,
-          reuploadRequest: sock.updateMediaMessage
-        }
-      );
+      const imageBuffer = Buffer.concat(buffer);
       
-      // Generate random file names
-      const randomId = Math.floor(Math.random() * 10000);
-      const inputFile = path.join(tempDir, `input_${randomId}.jpeg`);
-      const outputFile = path.join(tempDir, `sticker_${randomId}.webp`);
+      // Generate unique filename
+      const filename = `${uuidv4()}`;
+      const outputPath = path.join(tempDir, `${filename}.webp`);
       
-      // Save buffer to file
-      fs.writeFileSync(inputFile, buffer);
+      // Convert image to sticker using Sharp
+      await sharp(imageBuffer)
+        .resize({ width: 512, height: 512, fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } })
+        .webp({ quality: 80 })
+        .toFile(outputPath);
       
-      // Process with Jimp
-      const image = await Jimp.read(inputFile);
-      image.resize(512, 512);
-      await image.writeAsync(outputFile);
-      
-      // Send as sticker
-      await sock.sendMessage(sender, {
-        sticker: fs.readFileSync(outputFile),
-        mimetype: 'image/webp'
+      // Send sticker
+      await sock.sendMessage(sender, { 
+        sticker: { url: outputPath }
       });
       
       // Clean up temp files
-      fs.unlinkSync(inputFile);
-      fs.unlinkSync(outputFile);
+      try {
+        fs.unlinkSync(outputPath);
+      } catch (err) {
+        console.error('Error cleaning up temp files:', err);
+      }
       
     } catch (error) {
       console.error('Error creating sticker:', error);
